@@ -21,6 +21,11 @@
 #include "zenoh-pico/net/session.h"
 #include "zenoh-pico/protocol/core.h"
 
+typedef struct _z_get_t {
+    _z_session_weak_t _zn;
+    _z_zint_t *_id;
+} _z_get_t;
+
 /**
  * The query to be answered by a queryable.
  */

@@ -242,12 +242,20 @@ z_result_t _z_send_reply_err(const _z_query_t *query, const _z_session_rc_t *zsr
  *     attachment: An optional attachment to this query.
  *     cong_ctrl: The congestion control to apply when routing the query.
  *     priority: The priority of the query.
+ *     is_express: Flag, whether to batch this messages with others to reduce the bandwith.
+ *     get_handle: Optional handle, that can be used to cancel the query.
  *
  */
-z_result_t _z_query(_z_session_t *zn, _z_keyexpr_t keyexpr, const char *parameters, const z_query_target_t target,
+z_result_t _z_query(_z_session_rc_t zn_rc, _z_keyexpr_t keyexpr, const char *parameters, const z_query_target_t target,
                     const z_consolidation_mode_t consolidation, const _z_value_t value, _z_reply_handler_t callback,
                     _z_drop_handler_t dropper, void *arg, uint64_t timeout_ms, const _z_bytes_t attachment,
-                    z_congestion_control_t cong_ctrl, z_priority_t priority, bool is_express);
+                    z_congestion_control_t cong_ctrl, z_priority_t priority, bool is_express, _z_get_t *get_handle);
+
+_z_get_t _z_get_null();
+void _z_get_clear(_z_get_t *g);
+_z_get_t _z_get_create(const _z_session_rc_t *zn, _z_pending_query_t *pq);
+z_result_t _z_get_cancel(_z_get_t *g);
+
 #endif
 
 #if Z_FEATURE_INTEREST == 1

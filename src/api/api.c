@@ -1065,10 +1065,10 @@ z_result_t z_get(const z_loaned_session_t *zs, const z_loaned_keyexpr_t *keyexpr
     _z_value_t value = {.payload = _z_bytes_from_owned_bytes(&opt.payload->_this),
                         .encoding = _z_encoding_from_owned(&opt.encoding->_this)};
 
-    ret = _z_query(_Z_RC_IN_VAL(zs), keyexpr_aliased, parameters, opt.target, opt.consolidation.mode, value,
-                   callback->_this._val.call, callback->_this._val.drop, ctx, opt.timeout_ms,
-                   _z_bytes_from_owned_bytes(&opt.attachment->_this), opt.congestion_control, opt.priority,
-                   opt.is_express);
+    ret =
+        _z_query(*zs, keyexpr_aliased, parameters, opt.target, opt.consolidation.mode, value, callback->_this._val.call,
+                 callback->_this._val.drop, ctx, opt.timeout_ms, _z_bytes_from_owned_bytes(&opt.attachment->_this),
+                 opt.congestion_control, opt.priority, opt.is_express, NULL);
     // Clean-up
     z_bytes_drop(opt.payload);
     z_encoding_drop(opt.encoding);

@@ -126,6 +126,7 @@ typedef struct {
     z_query_target_t _target;
     z_consolidation_mode_t _consolidation;
     bool _anykey;
+    _z_zint_t *_get_handle;
 } _z_pending_query_t;
 
 bool _z_pending_query_eq(const _z_pending_query_t *one, const _z_pending_query_t *two);

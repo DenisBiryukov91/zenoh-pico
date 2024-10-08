@@ -119,6 +119,45 @@ _z_publisher_t _z_declare_publisher(const _z_session_rc_t *zn, _z_keyexpr_t keye
     return ret;
 }
 
+void _z_get_clear(_z_get_t *g) {
+    _z_session_weak_drop(&g->_zn);
+    z_free(g->_id);
+    g->_id = NULL;
+}
+
+_z_get_t _z_get_null() {
+    _z_get_t g;
+    g._zn = _z_session_weak_null();
+    g._id = NULL;
+    return g;
+}
+
+_z_get_t _z_get_create(const _z_session_rc_t *zn, _z_pending_query_t *pq) {
+    _z_get_t g;
+    g._id = (_z_zint_t *)z_malloc(sizeof(_z_zint_t));
+    g._zn = _z_session_rc_clone_as_weak(zn);
+    if (g._id == NULL || _Z_RC_IS_NULL(&g._zn)) {
+        g._zn = _z_session_weak_null();
+        g._id = NULL;
+    }
+    return g;
+}
+
+z_result_t _z_get_cancel(_z_get_t *g) {
+    if (_Z_RC_IS_NULL(&g->_zn) || g->_id) {
+        return _Z_ERR_INVALID;
+    }
+    _z_session_rc_t zn = _z_session_weak_upgrade(&g->_zn);
+    if (_Z_RC_IS_NULL(&zn)) {
+        _z_get_clear(g);
+        return _Z_ERR_INVALID;
+    }
+    _z_unregister_pending_query_by_handle(_Z_RC_IN_VAL(&zn), g->_id);
+    _z_session_rc_drop(&zn);
+    _z_get_clear(g);
+    return _Z_RES_OK;
+}
+
 z_result_t _z_undeclare_publisher(_z_publisher_t *pub) {
     if (pub == NULL || _Z_RC_IS_NULL(&pub->_zn)) {
         return _Z_ERR_ENTITY_UNKNOWN;
@@ -451,12 +490,12 @@ z_result_t _z_send_reply_err(const _z_query_t *query, const _z_session_rc_t *zsr
 
 #if Z_FEATURE_QUERY == 1
 /*------------------ Query ------------------*/
-z_result_t _z_query(_z_session_t *zn, _z_keyexpr_t keyexpr, const char *parameters, const z_query_target_t target,
+z_result_t _z_query(_z_session_rc_t zn_rc, _z_keyexpr_t keyexpr, const char *parameters, const z_query_target_t target,
                     const z_consolidation_mode_t consolidation, _z_value_t value, _z_reply_handler_t callback,
                     _z_drop_handler_t dropper, void *arg, uint64_t timeout_ms, const _z_bytes_t attachment,
-                    z_congestion_control_t cong_ctrl, z_priority_t priority, bool is_express) {
+                    z_congestion_control_t cong_ctrl, z_priority_t priority, bool is_express, _z_get_t *get_handle) {
     z_result_t ret = _Z_RES_OK;
-
+    _z_session_t *zn = _Z_RC_IN_VAL(&zn_rc);
     // Create the pending query object
     _z_pending_query_t *pq = (_z_pending_query_t *)z_malloc(sizeof(_z_pending_query_t));
     if (pq != NULL) {
@@ -479,6 +518,9 @@ z_result_t _z_query(_z_session_t *zn, _z_keyexpr_t keyexpr, const char *paramete
             if (_z_send_n_msg(zn, &z_msg, Z_RELIABILITY_RELIABLE, cong_ctrl) != _Z_RES_OK) {
                 _z_unregister_pending_query(zn, pq);
                 ret = _Z_ERR_TRANSPORT_TX_FAILED;
+            }
+            if (get_handle != NULL) {
+                *get_handle = _z_get_create(&zn_rc, pq);
             }
         } else {
             _z_pending_query_clear(pq);

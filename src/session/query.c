@@ -34,6 +34,9 @@ void _z_pending_query_clear(_z_pending_query_t *pen_qry) {
 }
 
 bool _z_pending_query_eq(const _z_pending_query_t *one, const _z_pending_query_t *two) { return one->_id == two->_id; }
+bool _z_pending_query_eq_id_handle(const _z_pending_query_t *one, const _z_pending_query_t *two) {
+    return one->_get_handle == two->_get_handle;
+}
 
 /*------------------ Query ------------------*/
 _z_zint_t _z_get_query_id(_z_session_t *zn) { return zn->_query_id++; }
@@ -249,6 +252,22 @@ void _z_unregister_pending_query(_z_session_t *zn, _z_pending_query_t *pen_qry) 
     zn->_pending_queries = _z_pending_query_list_drop_filter(zn->_pending_queries, _z_pending_query_eq, pen_qry);
 
     _zp_session_unlock_mutex(zn);
+}
+
+bool _z_unregister_pending_query_by_handle(_z_session_t *zn, const _z_zint_t *id) {
+    bool res = false;
+    _zp_session_lock_mutex(zn);
+    _z_pending_query_t pen_qry, *found;
+    found = NULL;
+    pen_qry._get_handle = *id;
+    zn->_pending_queries =
+        _z_pending_query_list_extract_filter(zn->_pending_queries, found, _z_pending_query_eq_id_handle, &pen_qry);
+    if (found != NULL) {
+        _z_pending_query_clear(found);
+    }
+    res = true;
+    _zp_session_unlock_mutex(zn);
+    return res;
 }
 
 void _z_flush_pending_queries(_z_session_t *zn) {

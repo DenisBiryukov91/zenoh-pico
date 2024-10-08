@@ -30,6 +30,7 @@ z_result_t _z_trigger_query_reply_partial(_z_session_t *zn, _z_zint_t reply_cont
 z_result_t _z_trigger_query_reply_err(_z_session_t *zn, _z_zint_t id, _z_msg_err_t *msg);
 z_result_t _z_trigger_query_reply_final(_z_session_t *zn, _z_zint_t id);
 void _z_unregister_pending_query(_z_session_t *zn, _z_pending_query_t *pq);
+bool _z_unregister_pending_query_by_handle(_z_session_t *zn, const _z_zint_t *g);
 void _z_flush_pending_queries(_z_session_t *zn);
 #endif
 
