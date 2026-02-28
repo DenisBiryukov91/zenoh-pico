@@ -25,6 +25,7 @@ typedef enum {
     _z_memory_order_relaxed,
     _z_memory_order_acquire,
     _z_memory_order_release,
+    _z_memory_order_acq_rel,
     _z_memory_order_seq_cst
 } _z_memory_order_t;
 

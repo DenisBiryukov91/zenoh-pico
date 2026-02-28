@@ -12,7 +12,7 @@
 typedef _Atomic(size_t) _z_atomic_t;
 _Static_assert(sizeof(size_t) == sizeof(_z_atomic_t), "_Atomic(size_t) must have same size as size_t");
 static const memory_order _z_memory_order_map[] = {memory_order_relaxed, memory_order_acquire, memory_order_release,
-                                                   memory_order_seq_cst};
+                                                   memory_order_acq_rel, memory_order_seq_cst};
 void _z_atomic_size_init(_z_atomic_size_t *var, size_t value) { atomic_init((_z_atomic_t *)&var->_value, value); }
 size_t _z_atomic_size_load(_z_atomic_size_t *var, _z_memory_order_t order) {
     return atomic_load_explicit((_z_atomic_t *)&var->_value, _z_memory_order_map[order]);
@@ -48,7 +48,8 @@ void _z_atomic_thread_fence(_z_memory_order_t order) { atomic_thread_fence(_z_me
 #include <atomic>
 static_assert(sizeof(size_t) == sizeof(std::atomic<size_t>), "std::atomic<size_t> must have the same size as size_t");
 static const std::memory_order _z_memory_order_map[] = {std::memory_order_relaxed, std::memory_order_acquire,
-                                                        std::memory_order_release, std::memory_order_seq_cst};
+                                                        std::memory_order_release, std::memory_order_acq_rel,
+                                                        std::memory_order_seq_cst};
 typedef std::atomic<size_t> _z_atomic_t;
 void _z_atomic_size_init(_z_atomic_size_t *var, size_t value) {
     reinterpret_cast<_z_atomic_t *>(&var->_value)->store(value, _z_memory_order_map[_z_memory_order_relaxed]);
@@ -79,7 +80,8 @@ void _z_atomic_thread_fence(_z_memory_order_t order) { std::atomic_thread_fence(
 #endif
 #else
 #ifdef ZENOH_COMPILER_GCC
-static const int _z_memory_order_map[] = {__ATOMIC_RELAXED, __ATOMIC_ACQUIRE, __ATOMIC_RELEASE, __ATOMIC_SEQ_CST};
+static const int _z_memory_order_map[] = {__ATOMIC_RELAXED, __ATOMIC_ACQUIRE, __ATOMIC_RELEASE, __ATOMIC_ACQ_REL,
+                                          __ATOMIC_SEQ_CST};
 void _z_atomic_size_init(_z_atomic_size_t *var, size_t value) {
     __atomic_store_n(&var->_value, value, _z_memory_order_map[_z_memory_order_relaxed]);
 }
