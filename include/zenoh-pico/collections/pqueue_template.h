@@ -57,80 +57,84 @@ typedef struct _ZP_PQUEUE_TEMPLATE_TYPE {
 } _ZP_PQUEUE_TEMPLATE_TYPE;
 
 static inline _ZP_PQUEUE_TEMPLATE_TYPE _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, new)(void) {
-    _ZP_PQUEUE_TEMPLATE_TYPE h = {0};
-    return h;
+    _ZP_PQUEUE_TEMPLATE_TYPE pqueue = {0};
+    return pqueue;
 }
-static inline void _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, destroy)(_ZP_PQUEUE_TEMPLATE_TYPE *h) {
-    for (size_t i = 0; i < h->_size; i++) {
-        _ZP_PQUEUE_TEMPLATE_ELEM_DESTROY_FN_NAME(&h->_buffer[i]);
+static inline void _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, destroy)(_ZP_PQUEUE_TEMPLATE_TYPE *pqueue) {
+    for (size_t i = 0; i < pqueue->_size; i++) {
+        _ZP_PQUEUE_TEMPLATE_ELEM_DESTROY_FN_NAME(&pqueue->_buffer[i]);
     }
-    h->_size = 0;
+    pqueue->_size = 0;
 }
-static inline size_t _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, size)(const _ZP_PQUEUE_TEMPLATE_TYPE *h) { return h->_size; }
-static inline bool _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, is_empty)(const _ZP_PQUEUE_TEMPLATE_TYPE *h) {
-    return h->_size == 0;
+static inline size_t _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, size)(const _ZP_PQUEUE_TEMPLATE_TYPE *pqueue) {
+    return pqueue->_size;
 }
-static inline _ZP_PQUEUE_TEMPLATE_ELEM_TYPE *_ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, peek)(_ZP_PQUEUE_TEMPLATE_TYPE *h) {
-    if (h->_size == 0) {
+static inline bool _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, is_empty)(const _ZP_PQUEUE_TEMPLATE_TYPE *pqueue) {
+    return pqueue->_size == 0;
+}
+static inline _ZP_PQUEUE_TEMPLATE_ELEM_TYPE *_ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, peek)(_ZP_PQUEUE_TEMPLATE_TYPE *pqueue) {
+    if (pqueue->_size == 0) {
         return NULL;
     }
-    return &h->_buffer[0];
+    return &pqueue->_buffer[0];
 }
-static inline void _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, sift_up)(_ZP_PQUEUE_TEMPLATE_TYPE *h, size_t i) {
+static inline void _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, sift_up)(_ZP_PQUEUE_TEMPLATE_TYPE *pqueue, size_t i) {
     while (i > 0) {
         size_t parent = (i - 1) / 2;
-        if (_ZP_PQUEUE_TEMPLATE_ELEM_CMP_FN_NAME(&h->_buffer[i], &h->_buffer[parent]) < 0) {
+        if (_ZP_PQUEUE_TEMPLATE_ELEM_CMP_FN_NAME(&pqueue->_buffer[i], &pqueue->_buffer[parent]) < 0) {
             _ZP_PQUEUE_TEMPLATE_ELEM_TYPE tmp;
-            _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&tmp, &h->_buffer[parent]);
-            _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&h->_buffer[parent], &h->_buffer[i]);
-            _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&h->_buffer[i], &tmp);
+            _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&tmp, &pqueue->_buffer[parent]);
+            _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&pqueue->_buffer[parent], &pqueue->_buffer[i]);
+            _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&pqueue->_buffer[i], &tmp);
             i = parent;
         } else {
             break;
         }
     }
 }
-static inline void _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, sift_down)(_ZP_PQUEUE_TEMPLATE_TYPE *h, size_t i) {
+static inline void _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, sift_down)(_ZP_PQUEUE_TEMPLATE_TYPE *pqueue, size_t i) {
     while (true) {
         size_t left = 2 * i + 1;
         size_t right = 2 * i + 2;
         size_t best = i;
-        if (left < h->_size && _ZP_PQUEUE_TEMPLATE_ELEM_CMP_FN_NAME(&h->_buffer[left], &h->_buffer[best]) < 0) {
+        if (left < pqueue->_size &&
+            _ZP_PQUEUE_TEMPLATE_ELEM_CMP_FN_NAME(&pqueue->_buffer[left], &pqueue->_buffer[best]) < 0) {
             best = left;
         }
-        if (right < h->_size && _ZP_PQUEUE_TEMPLATE_ELEM_CMP_FN_NAME(&h->_buffer[right], &h->_buffer[best]) < 0) {
+        if (right < pqueue->_size &&
+            _ZP_PQUEUE_TEMPLATE_ELEM_CMP_FN_NAME(&pqueue->_buffer[right], &pqueue->_buffer[best]) < 0) {
             best = right;
         }
         if (best == i) {
             break;
         }
         _ZP_PQUEUE_TEMPLATE_ELEM_TYPE tmp;
-        _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&tmp, &h->_buffer[i]);
-        _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&h->_buffer[i], &h->_buffer[best]);
-        _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&h->_buffer[best], &tmp);
+        _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&tmp, &pqueue->_buffer[i]);
+        _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&pqueue->_buffer[i], &pqueue->_buffer[best]);
+        _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&pqueue->_buffer[best], &tmp);
         i = best;
     }
 }
-static inline bool _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, push)(_ZP_PQUEUE_TEMPLATE_TYPE *h,
+static inline bool _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, push)(_ZP_PQUEUE_TEMPLATE_TYPE *pqueue,
                                                            _ZP_PQUEUE_TEMPLATE_ELEM_TYPE *elem) {
-    if (h->_size == _ZP_PQUEUE_TEMPLATE_SIZE) {
+    if (pqueue->_size == _ZP_PQUEUE_TEMPLATE_SIZE) {
         return false;
     }
-    _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&h->_buffer[h->_size], elem);
-    _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, sift_up)(h, h->_size);
-    h->_size++;
+    _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&pqueue->_buffer[pqueue->_size], elem);
+    _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, sift_up)(pqueue, pqueue->_size);
+    pqueue->_size++;
     return true;
 }
-static inline bool _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, pop)(_ZP_PQUEUE_TEMPLATE_TYPE *h,
+static inline bool _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, pop)(_ZP_PQUEUE_TEMPLATE_TYPE *pqueue,
                                                           _ZP_PQUEUE_TEMPLATE_ELEM_TYPE *out) {
-    if (h->_size == 0) {
+    if (pqueue->_size == 0) {
         return false;
     }
-    _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(out, &h->_buffer[0]);
-    h->_size--;
-    if (h->_size > 0) {
-        _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&h->_buffer[0], &h->_buffer[h->_size]);
-        _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, sift_down)(h, 0);
+    _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(out, &pqueue->_buffer[0]);
+    pqueue->_size--;
+    if (pqueue->_size > 0) {
+        _ZP_PQUEUE_TEMPLATE_ELEM_MOVE_FN_NAME(&pqueue->_buffer[0], &pqueue->_buffer[pqueue->_size]);
+        _ZP_CAT(_ZP_PQUEUE_TEMPLATE_NAME, sift_down)(pqueue, 0);
     }
     return true;
 }

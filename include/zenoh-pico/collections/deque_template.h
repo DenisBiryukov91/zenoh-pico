@@ -55,97 +55,97 @@ typedef struct _ZP_DEQUE_TEMPLATE_TYPE {
 } _ZP_DEQUE_TEMPLATE_TYPE;
 
 static inline _ZP_DEQUE_TEMPLATE_TYPE _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, new)(void) {
-    _ZP_DEQUE_TEMPLATE_TYPE d = {0};
-    return d;
+    _ZP_DEQUE_TEMPLATE_TYPE deque = {0};
+    return deque;
 }
-static inline size_t _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, size)(const _ZP_DEQUE_TEMPLATE_TYPE *d) {
-    if (d->_start < d->_end) {
-        return d->_end - d->_start;
-    } else if (d->_start == 0 && d->_end == 0) {
+static inline size_t _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, size)(const _ZP_DEQUE_TEMPLATE_TYPE *deque) {
+    if (deque->_start < deque->_end) {
+        return deque->_end - deque->_start;
+    } else if (deque->_start == 0 && deque->_end == 0) {
         return 0;
     }
-    return _ZP_DEQUE_TEMPLATE_SIZE - d->_start + d->_end;
+    return _ZP_DEQUE_TEMPLATE_SIZE - deque->_start + deque->_end;
 }
-static inline void _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, destroy)(_ZP_DEQUE_TEMPLATE_TYPE *d) {
-    size_t count = _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, size)(d);
+static inline void _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, destroy)(_ZP_DEQUE_TEMPLATE_TYPE *deque) {
+    size_t count = _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, size)(deque);
     for (size_t i = 0; i < count; i++) {
-        size_t idx = d->_start + i;
+        size_t idx = deque->_start + i;
         if (i >= _ZP_DEQUE_TEMPLATE_SIZE) {
             idx -= _ZP_DEQUE_TEMPLATE_SIZE;
         }
-        _ZP_DEQUE_TEMPLATE_ELEM_DESTROY_FN_NAME(&d->_buffer[idx]);
+        _ZP_DEQUE_TEMPLATE_ELEM_DESTROY_FN_NAME(&deque->_buffer[idx]);
     }
-    d->_start = 0;
-    d->_end = 0;
+    deque->_start = 0;
+    deque->_end = 0;
 }
-static inline bool _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, is_empty)(const _ZP_DEQUE_TEMPLATE_TYPE *d) {
-    return _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, size)(d) == 0;
+static inline bool _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, is_empty)(const _ZP_DEQUE_TEMPLATE_TYPE *deque) {
+    return _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, size)(deque) == 0;
 }
-static inline bool _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, push_back)(_ZP_DEQUE_TEMPLATE_TYPE *d,
+static inline bool _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, push_back)(_ZP_DEQUE_TEMPLATE_TYPE *deque,
                                                                _ZP_DEQUE_TEMPLATE_ELEM_TYPE *elem) {
-    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, size)(d) == _ZP_DEQUE_TEMPLATE_SIZE) {
+    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, size)(deque) == _ZP_DEQUE_TEMPLATE_SIZE) {
         return false;
     }
-    if (d->_end == _ZP_DEQUE_TEMPLATE_SIZE) {
-        d->_end = 0;
+    if (deque->_end == _ZP_DEQUE_TEMPLATE_SIZE) {
+        deque->_end = 0;
     }
-    _ZP_DEQUE_TEMPLATE_ELEM_MOVE_FN_NAME(&d->_buffer[d->_end], elem);
-    d->_end++;
+    _ZP_DEQUE_TEMPLATE_ELEM_MOVE_FN_NAME(&deque->_buffer[deque->_end], elem);
+    deque->_end++;
     return true;
 }
-static inline bool _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, pop_back)(_ZP_DEQUE_TEMPLATE_TYPE *d,
+static inline bool _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, pop_back)(_ZP_DEQUE_TEMPLATE_TYPE *deque,
                                                               _ZP_DEQUE_TEMPLATE_ELEM_TYPE *out) {
-    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, is_empty)(d)) {
+    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, is_empty)(deque)) {
         return false;
     }
-    if (d->_end == 0) {
-        d->_end = _ZP_DEQUE_TEMPLATE_SIZE;
+    if (deque->_end == 0) {
+        deque->_end = _ZP_DEQUE_TEMPLATE_SIZE;
     }
-    d->_end--;
-    _ZP_DEQUE_TEMPLATE_ELEM_MOVE_FN_NAME(out, &d->_buffer[d->_end]);
-    if (d->_end == d->_start) {
-        d->_end = 0;
-        d->_start = 0;
+    deque->_end--;
+    _ZP_DEQUE_TEMPLATE_ELEM_MOVE_FN_NAME(out, &deque->_buffer[deque->_end]);
+    if (deque->_end == deque->_start) {
+        deque->_end = 0;
+        deque->_start = 0;
     }
     return true;
 }
-static inline _ZP_DEQUE_TEMPLATE_ELEM_TYPE *_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, back)(_ZP_DEQUE_TEMPLATE_TYPE *d) {
-    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, is_empty)(d)) {
+static inline _ZP_DEQUE_TEMPLATE_ELEM_TYPE *_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, back)(_ZP_DEQUE_TEMPLATE_TYPE *deque) {
+    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, is_empty)(deque)) {
         return NULL;
     }
-    size_t idx = d->_end == 0 ? _ZP_DEQUE_TEMPLATE_SIZE - 1 : d->_end - 1;
-    return &d->_buffer[idx];
+    size_t idx = deque->_end == 0 ? _ZP_DEQUE_TEMPLATE_SIZE - 1 : deque->_end - 1;
+    return &deque->_buffer[idx];
 }
-static inline bool _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, push_front)(_ZP_DEQUE_TEMPLATE_TYPE *d,
+static inline bool _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, push_front)(_ZP_DEQUE_TEMPLATE_TYPE *deque,
                                                                 _ZP_DEQUE_TEMPLATE_ELEM_TYPE *elem) {
-    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, size)(d) == _ZP_DEQUE_TEMPLATE_SIZE) {
+    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, size)(deque) == _ZP_DEQUE_TEMPLATE_SIZE) {
         return false;
     }
-    if (d->_start == 0) {
-        d->_start = _ZP_DEQUE_TEMPLATE_SIZE;
+    if (deque->_start == 0) {
+        deque->_start = _ZP_DEQUE_TEMPLATE_SIZE;
     }
-    d->_start--;
-    _ZP_DEQUE_TEMPLATE_ELEM_MOVE_FN_NAME(&d->_buffer[d->_start], elem);
+    deque->_start--;
+    _ZP_DEQUE_TEMPLATE_ELEM_MOVE_FN_NAME(&deque->_buffer[deque->_start], elem);
     return true;
 }
-static inline bool _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, pop_front)(_ZP_DEQUE_TEMPLATE_TYPE *d,
+static inline bool _ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, pop_front)(_ZP_DEQUE_TEMPLATE_TYPE *deque,
                                                                _ZP_DEQUE_TEMPLATE_ELEM_TYPE *out) {
-    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, is_empty)(d)) {
+    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, is_empty)(deque)) {
         return false;
     }
-    _ZP_DEQUE_TEMPLATE_ELEM_MOVE_FN_NAME(out, &d->_buffer[d->_start]);
-    d->_start++;
-    if (d->_end == d->_start) {
-        d->_end = 0;
-        d->_start = 0;
+    _ZP_DEQUE_TEMPLATE_ELEM_MOVE_FN_NAME(out, &deque->_buffer[deque->_start]);
+    deque->_start++;
+    if (deque->_end == deque->_start) {
+        deque->_end = 0;
+        deque->_start = 0;
     }
     return true;
 }
-static inline _ZP_DEQUE_TEMPLATE_ELEM_TYPE *_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, front)(_ZP_DEQUE_TEMPLATE_TYPE *d) {
-    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, is_empty)(d)) {
+static inline _ZP_DEQUE_TEMPLATE_ELEM_TYPE *_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, front)(_ZP_DEQUE_TEMPLATE_TYPE *deque) {
+    if (_ZP_CAT(_ZP_DEQUE_TEMPLATE_NAME, is_empty)(deque)) {
         return NULL;
     }
-    return &d->_buffer[d->_start];
+    return &deque->_buffer[deque->_start];
 }
 
 #undef _ZP_DEQUE_TEMPLATE_TYPE
