@@ -381,6 +381,10 @@ z_result_t z_sleep_s(size_t time);
  */
 z_clock_t z_clock_now(void);
 
+unsigned long zp_clock_elapsed_us_since(z_clock_t *instant, z_clock_t *epoch);
+unsigned long zp_clock_elapsed_ms_since(z_clock_t *instant, z_clock_t *epoch);
+unsigned long zp_clock_elapsed_s_since(z_clock_t *instant, z_clock_t *epoch);
+
 /**
  * Returns the elapsed time in microseconds since a given clock time.
  *

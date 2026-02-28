@@ -147,8 +147,25 @@ z_result_t z_sleep_s(size_t time) {
     return 0;
 }
 
+unsigned long z_time_elapsed_ms_since(z_time_t *time, z_time_t *epoch) {
+    z_time_t now = emscripten_get_now();
+
+    unsigned long elapsed = *time > *epoch ? *time - *epoch : 0;
+    return elapsed;
+}
+
 /*------------------ Instant ------------------*/
 z_clock_t z_clock_now(void) { return z_time_now(); }
+
+unsigned long zp_clock_elapsed_us_since(z_clock_t *instant, z_clock_t *epoch) {
+    return z_time_elapsed_ms_since(instant, epoch) * 1000;
+}
+unsigned long zp_clock_elapsed_ms_since(z_clock_t *instant, z_clock_t *epoch) {
+    return z_time_elapsed_ms_since(instant, epoch);
+}
+unsigned long zp_clock_elapsed_s_since(z_clock_t *instant, z_clock_t *epoch) {
+    return z_time_elapsed_ms_since(instant, epoch) / 1000;
+}
 
 unsigned long z_clock_elapsed_us(z_clock_t *instant) { return z_clock_elapsed_ms(instant) * 1000; }
 
@@ -174,9 +191,7 @@ unsigned long z_time_elapsed_us(z_time_t *time) { return z_time_elapsed_ms(time)
 
 unsigned long z_time_elapsed_ms(z_time_t *time) {
     z_time_t now = emscripten_get_now();
-
-    unsigned long elapsed = now - *time;
-    return elapsed;
+    return z_time_elapsed_ms_since(&now, time);
 }
 
 unsigned long z_time_elapsed_s(z_time_t *time) { return z_time_elapsed_ms(time) * 1000; }

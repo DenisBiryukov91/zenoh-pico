@@ -346,13 +346,23 @@ z_result_t z_sleep_s(size_t time) {
 /*------------------ Clock ------------------*/
 z_clock_t z_clock_now(void) { return xTaskGetTickCount(); }
 
+unsigned long zp_clock_elapsed_us_since(z_clock_t *instant, z_clock_t *epoch) {
+    return zp_clock_elapsed_ms_since(instant, epoch) * 1000;
+}
+
+unsigned long zp_clock_elapsed_ms_since(z_clock_t *instant, z_clock_t *epoch) {
+    return *instant > *epoch ? (*instant - *epoch) * portTICK_PERIOD_MS : 0;
+}
+
+unsigned long zp_clock_elapsed_s_since(z_clock_t *instant, z_clock_t *epoch) {
+    return zp_clock_elapsed_ms_since(instant, epoch) / 1000;
+}
+
 unsigned long z_clock_elapsed_us(z_clock_t *instant) { return z_clock_elapsed_ms(instant) * 1000; }
 
 unsigned long z_clock_elapsed_ms(z_clock_t *instant) {
     z_clock_t now = z_clock_now();
-
-    unsigned long elapsed = (now - *instant) * portTICK_PERIOD_MS;
-    return elapsed;
+    return zp_clock_elapsed_ms_since(&now, instant);
 }
 
 unsigned long z_clock_elapsed_s(z_clock_t *instant) { return z_clock_elapsed_ms(instant) / 1000; }

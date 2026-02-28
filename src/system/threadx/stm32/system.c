@@ -272,28 +272,39 @@ z_clock_t z_clock_now(void) {
     return now;
 }
 
+unsigned long zp_clock_elapsed_us_since(z_clock_t *instant, z_clock_t *epoch) {
+    long elapsed = (1000000 * (instant->tv_sec - epoch->tv_sec) + (instant->tv_nsec - epoch->tv_nsec) / 1000);
+    return elapsed > 0 ? (unsigned long)elapsed : 0;
+}
+
+unsigned long zp_clock_elapsed_ms_since(z_clock_t *instant, z_clock_t *epoch) {
+    long elapsed = (1000 * (instant->tv_sec - epoch->tv_sec) + (instant->tv_nsec - epoch->tv_nsec) / 1000000);
+    return elapsed > 0 ? (unsigned long)elapsed : 0;
+}
+
+unsigned long zp_clock_elapsed_s_since(z_clock_t *instant, z_clock_t *epoch) {
+    long elapsed = (instant->tv_sec - epoch->tv_sec);
+    return elapsed > 0 ? (unsigned long)elapsed : 0;
+}
+
 unsigned long z_clock_elapsed_us(z_clock_t *instant) {
     z_clock_t now;
     __z_clock_gettime(&now);
-
-    unsigned long elapsed = (1000000 * (now.tv_sec - instant->tv_sec) + (now.tv_nsec - instant->tv_nsec) / 1000);
-    return elapsed;
+    return zp_clock_elapsed_us_since(&now, instant);
 }
 
 unsigned long z_clock_elapsed_ms(z_clock_t *instant) {
     z_clock_t now;
     __z_clock_gettime(&now);
 
-    unsigned long elapsed = (1000 * (now.tv_sec - instant->tv_sec) + (now.tv_nsec - instant->tv_nsec) / 1000000);
-    return elapsed;
+    return zp_clock_elapsed_ms_since(&now, instant);
 }
 
 unsigned long z_clock_elapsed_s(z_clock_t *instant) {
     z_clock_t now;
     __z_clock_gettime(&now);
 
-    unsigned long elapsed = now.tv_sec - instant->tv_sec;
-    return elapsed;
+    return zp_clock_elapsed_s_since(&now, instant);
 }
 
 void z_clock_advance_us(z_clock_t *clock, unsigned long duration) {
