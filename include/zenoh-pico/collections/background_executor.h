@@ -23,11 +23,6 @@
 #include "zenoh-pico/collections/refcount.h"
 #include "zenoh-pico/system/platform.h"
 
-typedef struct _z_background_executor_spawn_result_t {
-    _z_executor_task_handle_rc_t handle;
-    z_result_t result;
-} _z_background_executor_spawn_result_t;
-
 typedef struct _z_background_executor_inner_t _z_background_executor_inner_t;
 void _z_background_executor_inner_clear(_z_background_executor_inner_t *be);
 
@@ -39,13 +34,12 @@ typedef struct _z_background_executor_t {
 } _z_background_executor_t;
 
 z_result_t _z_background_executor_new(_z_background_executor_t *be);
-_z_background_executor_spawn_result_t _z_background_executor_spawn(_z_background_executor_t *be, void *task_arg,
-                                                                   _z_timer_executor_task_fn_t task_fn,
-                                                                   _z_executor_task_destroy_fn_t destroy_fn,
-                                                                   void *result);
-z_result_t _z_background_executor_spawn_and_forget(_z_background_executor_t *be, void *task_arg,
-                                                   _z_timer_executor_task_fn_t task_fn,
-                                                   _z_executor_task_destroy_fn_t destroy_fn);
+// Returns a handle to the spawned task and a result indicating whether the spawn was successful.
+// If the spawn was successful, the caller can use the handle to cancel the task or check its status.
+// If the spawn failed, the caller should not use the handle.
+// The background executor takes ownership of the future and will destroy it when the task is executed or cancelled or
+// in case of spawn failure.
+z_result_t _z_background_executor_spawn(_z_background_executor_t *be, _z_fut_t *fut);
 z_result_t _z_background_executor_suspend(_z_background_executor_t *be);
 z_result_t _z_background_executor_resume(_z_background_executor_t *be);
 z_result_t _z_background_executor_destroy(_z_background_executor_t *be);

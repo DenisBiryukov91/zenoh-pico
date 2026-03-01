@@ -14,210 +14,157 @@
 
 #include "zenoh-pico/collections/executor.h"
 
-void _z_executor_task_handle_clear(_z_executor_task_handle_t *handle) {
+void _z_fut_handle_clear(_z_fut_handle_t *handle) {
     if (handle == NULL) {
         return;
     }
-    handle->result = NULL;
-    _z_atomic_size_store(&handle->_task_status, (size_t)_Z_EXECUTOR_TASK_STATUS_CANCELLED, _z_memory_order_release);
+    _z_atomic_size_store(&handle->_task_status, (size_t)_Z_FUT_STATUS_CANCELLED, _z_memory_order_release);
 }
 
-void _z_executor_task_handle_cancel(const _z_executor_task_handle_rc_t *handle) {
-    if (_Z_RC_IS_NULL(handle)) {
-        return;
-    }
-    size_t expected = (size_t)_Z_EXECUTOR_TASK_STATUS_PENDING;
-    while (!_z_atomic_size_compare_exchange_strong(&handle->_val->_task_status, &expected,
-                                                   (size_t)_Z_EXECUTOR_TASK_STATUS_CANCELLED, _z_memory_order_release,
-                                                   _z_memory_order_relaxed)) {
-        if (expected == (size_t)_Z_EXECUTOR_TASK_STATUS_READY ||
-            expected == (size_t)_Z_EXECUTOR_TASK_STATUS_CANCELLED) {
+void _z_fut_handle_cancel(_z_fut_handle_t *handle) {
+    size_t expected = (size_t)_Z_FUT_STATUS_PENDING;
+    while (!_z_atomic_size_compare_exchange_strong(&handle->_task_status, &expected, (size_t)_Z_FUT_STATUS_CANCELLED,
+                                                   _z_memory_order_release, _z_memory_order_relaxed)) {
+        if (expected == (size_t)_Z_FUT_STATUS_READY || expected == (size_t)_Z_FUT_STATUS_CANCELLED) {
             // The task is already ready or cancelled, so there is nothing to do.
             return;
         }
     }
 }
 
-_z_executor_task_status_t _z_executor_task_status(const _z_executor_task_handle_rc_t *handle) {
-    if (_Z_RC_IS_NULL(handle)) {
-        return _Z_EXECUTOR_TASK_STATUS_CANCELLED;
-    }
-    return (_z_executor_task_status_t)_z_atomic_size_load((_z_atomic_size_t *)&handle->_val->_task_status,
-                                                          _z_memory_order_acquire);
+_z_fut_status_t _z_fut_handle_status(const _z_fut_handle_t *handle) {
+    return (_z_fut_status_t)_z_atomic_size_load((_z_atomic_size_t *)&handle->_task_status, _z_memory_order_acquire);
 }
 
-_z_executor_task_handle_rc_t _z_executor_spawn(_z_executor_t *executor, void *task_arg, _z_executor_task_fn_t task_fn,
-                                               _z_executor_task_destroy_fn_t destroy_fn, void *result) {
-    _z_executor_task_t task;
-    task._task_arg = task_arg;
-    task._task_fn = task_fn;
-    task._destroy_fn = destroy_fn;
-    task._handle = _z_executor_task_handle_rc_null();
-    _z_executor_task_handle_t *h = z_malloc(sizeof(_z_executor_task_handle_t));
-    if (h == NULL) {
-        _z_executor_task_destroy(&task);
-        return _z_executor_task_handle_rc_null();
-    }
-    _z_executor_task_handle_rc_t handle = _z_executor_task_handle_rc_new(h);
-    if (handle._val != NULL) {
-        handle._val->result = result;
-        _z_atomic_size_init(&handle._val->_task_status, (size_t)_Z_EXECUTOR_TASK_STATUS_PENDING);
-        task._handle = _z_executor_task_handle_rc_clone(&handle);
-        if (!_z_executor_task_deque_push_back(&executor->_tasks, &task)) {
-            _z_executor_task_destroy(&task);
-            _z_executor_task_handle_rc_drop(&handle);
+_z_fut_handle_rc_t _z_fut_get_handle(_z_fut_t *fut) {
+    if (_Z_RC_IS_NULL(&fut->_handle)) {
+        _z_fut_handle_t *h = z_malloc(sizeof(_z_fut_handle_t));
+        if (h == NULL) {
+            return _z_fut_handle_rc_null();
         }
-    } else {
-        _z_executor_task_destroy(&task);
-        z_free(h);
+        fut->_handle = _z_fut_handle_rc_new(h);
+        if (!_Z_RC_IS_NULL(&fut->_handle)) {
+            _z_atomic_size_init(&fut->_handle._val->_task_status, (size_t)_Z_FUT_STATUS_PENDING);
+        } else {
+            z_free(h);
+            return _z_fut_handle_rc_null();
+        }
     }
-    return handle;
+    return _z_fut_handle_rc_clone(&fut->_handle);
 }
 
-bool _z_executor_spawn_and_forget(_z_executor_t *executor, void *task_arg, _z_executor_task_fn_t task_fn,
-                                  _z_executor_task_destroy_fn_t destroy_fn) {
-    _z_executor_task_t task;
-    task._task_arg = task_arg;
-    task._task_fn = task_fn;
-    task._destroy_fn = destroy_fn;
-    task._handle = _z_executor_task_handle_rc_null();
-    if (!_z_executor_task_deque_push_back(&executor->_tasks, &task)) {
-        _z_executor_task_destroy(&task);
+bool _z_executor_spawn(_z_executor_t *executor, _z_fut_t *fut) {
+    if (!_z_fut_deque_push_back(&executor->_tasks, fut)) {
+        _z_fut_destroy(fut);
         return false;
     }
     return true;
 }
 
-bool _z_executor_spin(_z_executor_t *executor) {
-    _z_executor_task_t task;
-    if (!_z_executor_task_deque_pop_front(&executor->_tasks, &task)) {
-        return false;
-    }
-    size_t expected = (size_t)_Z_EXECUTOR_TASK_STATUS_PENDING;
-    if (!_Z_RC_IS_NULL(&task._handle)) {
-        while (!_z_atomic_size_compare_exchange_strong(&task._handle._val->_task_status, &expected,
-                                                       (size_t)_Z_EXECUTOR_TASK_STATUS_EXECUTING,
-                                                       _z_memory_order_acquire, _z_memory_order_relaxed)) {
-            if (expected == (size_t)_Z_EXECUTOR_TASK_STATUS_CANCELLED) {
-                // The task is cancelled, we can skip it.
-                _z_executor_task_destroy(&task);
-                return _z_executor_spin(executor);
+_z_executor_spin_result_t _z_executor_get_next_fut(_z_executor_t *executor, _z_fut_t *task) {
+    _z_executor_spin_result_t result;
+    result.status = _Z_EXECUTOR_SPIN_RESULT_NO_TASKS;
+    _z_timed_fut_t *timed_task_ptr = _z_timed_fut_pqueue_peek(&executor->_timed_tasks);
+    if (timed_task_ptr != NULL) {
+        z_clock_t now = z_clock_now();
+        z_clock_t wake_up_time = executor->_epoch;
+        z_clock_advance_ms(&wake_up_time, timed_task_ptr->_wake_up_time_ms);
+        if (zp_clock_elapsed_ms_since(&now, &wake_up_time) > 0) {
+            // The timed task is ready to execute
+            _z_timed_fut_t t;
+            _z_timed_fut_pqueue_pop(&executor->_timed_tasks, &t);
+            if (_z_fut_deque_pop_front(&executor->_tasks, task)) {
+                // We have a non-timed task to execute, we should re-enqueue the ready timed task as non-timed one and
+                // execute the non-timed task first.
+                _z_fut_deque_push_back(&executor->_tasks, &t._fut);
+            } else {
+                // No non-timed task, execute the ready timed task directly.
+                _z_fut_move(task, &t._fut);
             }
+            result.status = _Z_EXECUTOR_SPIN_RESULT_EXECUTED_TASK;
+        } else if (_z_fut_deque_pop_front(&executor->_tasks, task)) {
+            // We have a non-timed task to execute
+            result.status = _Z_EXECUTOR_SPIN_RESULT_EXECUTED_TASK;
+        } else {
+            // No non-timed task, we should wait for the timed task to be ready.
+            result.status = _Z_EXECUTOR_SPIN_RESULT_SHOULD_WAIT;
+            result.next_wake_up_time = wake_up_time;
         }
+    } else if (_z_fut_deque_pop_front(&executor->_tasks, task)) {
+        // We have a non-timed task to execute
+        result.status = _Z_EXECUTOR_SPIN_RESULT_EXECUTED_TASK;
     }
-
-    if (!task._task_fn(task._task_arg, _Z_RC_IS_NULL(&task._handle) ? NULL : task._handle._val->result, executor)) {
-        // Re-enqueue the task
-        if (!_Z_RC_IS_NULL(&task._handle)) {
-            _z_atomic_size_store(&task._handle._val->_task_status, (size_t)_Z_EXECUTOR_TASK_STATUS_PENDING,
-                                 _z_memory_order_release);
-        }
-        _z_executor_task_deque_push_back(&executor->_tasks, &task);
-        return true;
-    } else {
-        if (!_Z_RC_IS_NULL(&task._handle)) {
-            _z_atomic_size_store(&task._handle._val->_task_status, (size_t)_Z_EXECUTOR_TASK_STATUS_READY,
-                                 _z_memory_order_release);
-        }
-        _z_executor_task_destroy(&task);
-        return _z_executor_task_deque_size(&executor->_tasks) > 0;
-    }
-}
-
-_z_executor_task_handle_rc_t _z_timer_executor_spawn(_z_timer_executor_t *executor, void *task_arg,
-                                                     _z_timer_executor_task_fn_t task_fn,
-                                                     _z_executor_task_destroy_fn_t destroy_fn, void *result) {
-    _z_timer_executor_task_t task;
-    task._task_arg = task_arg;
-    task._task_fn = task_fn;
-    task._destroy_fn = destroy_fn;
-    task._wake_up_time_ms = z_clock_elapsed_ms(&executor->_epoch);
-    task._handle = _z_executor_task_handle_rc_null();
-    _z_executor_task_handle_t *h = z_malloc(sizeof(_z_executor_task_handle_t));
-    if (h == NULL) {
-        _z_timer_executor_task_destroy(&task);
-        return _z_executor_task_handle_rc_null();
-    }
-    _z_executor_task_handle_rc_t handle = _z_executor_task_handle_rc_new(h);
-    if (handle._val != NULL) {
-        handle._val->result = result;
-        _z_atomic_size_init(&handle._val->_task_status, (size_t)_Z_EXECUTOR_TASK_STATUS_PENDING);
-        task._handle = _z_executor_task_handle_rc_clone(&handle);
-        if (!_z_timer_executor_task_pqueue_push(&executor->_tasks, &task)) {
-            _z_timer_executor_task_destroy(&task);
-            _z_executor_task_handle_rc_drop(&handle);
-        }
-    } else {
-        _z_timer_executor_task_destroy(&task);
-        z_free(h);
-    }
-    return handle;
-}
-
-bool _z_timer_executor_spawn_and_forget(_z_timer_executor_t *executor, void *task_arg,
-                                        _z_timer_executor_task_fn_t task_fn, _z_executor_task_destroy_fn_t destroy_fn) {
-    _z_timer_executor_task_t task;
-    task._task_arg = task_arg;
-    task._task_fn = task_fn;
-    task._destroy_fn = destroy_fn;
-    task._wake_up_time_ms = z_clock_elapsed_ms(&executor->_epoch);
-    task._handle = _z_executor_task_handle_rc_null();
-    if (!_z_timer_executor_task_pqueue_push(&executor->_tasks, &task)) {
-        _z_timer_executor_task_destroy(&task);
-        return false;
-    }
-    return true;
-}
-
-_z_timer_executor_spin_result_t _z_timer_executor_next_task_status_inner(_z_timer_executor_t *executor) {
-    _z_timer_executor_spin_result_t result = {0};
-    _z_timer_executor_task_t *task_ptr = _z_timer_executor_task_pqueue_peek(&executor->_tasks);
-    result._wake_up_time = executor->_epoch;
-    if (task_ptr == NULL) {
-        return result;
-    }
-    result.has_pending_tasks = true;
-    z_clock_advance_ms(&result._wake_up_time, task_ptr->_wake_up_time_ms);
     return result;
 }
 
-_z_timer_executor_spin_result_t _z_timer_executor_spin(_z_timer_executor_t *executor) {
-    _z_timer_executor_spin_result_t result = _z_timer_executor_next_task_status_inner(executor);
-    z_clock_t now = z_clock_now();
-    if (!result.has_pending_tasks || zp_clock_elapsed_ms_since(&result._wake_up_time, &now) > 0) {
-        return result;
-    }
-    _z_timer_executor_task_t task;
-    _z_timer_executor_task_pqueue_pop(&executor->_tasks, &task);
-    size_t expected = (size_t)_Z_EXECUTOR_TASK_STATUS_PENDING;
-    if (!_Z_RC_IS_NULL(&task._handle)) {
-        while (!_z_atomic_size_compare_exchange_strong(&task._handle._val->_task_status, &expected,
-                                                       (size_t)_Z_EXECUTOR_TASK_STATUS_EXECUTING,
-                                                       _z_memory_order_acquire, _z_memory_order_relaxed)) {
-            if (expected == (size_t)_Z_EXECUTOR_TASK_STATUS_CANCELLED) {
-                // The task is cancelled, we can skip it.
-                _z_timer_executor_task_destroy(&task);
-                return _z_timer_executor_spin(executor);
+_z_executor_spin_result_t _z_executor_spin(_z_executor_t *executor) {
+    _z_fut_t fut;
+    _z_executor_spin_result_t result;
+    while (true) {  // Loop until we find non-null task to execute
+        result = _z_executor_get_next_fut(executor, &fut);
+        if (result.status == _Z_EXECUTOR_SPIN_RESULT_NO_TASKS ||
+            result.status == _Z_EXECUTOR_SPIN_RESULT_SHOULD_WAIT) {  // No tasks to execute
+            return result;
+        }
+        if (!_Z_RC_IS_NULL(&fut._handle)) {
+            size_t expected = (size_t)_Z_FUT_STATUS_PENDING;
+            while (!_z_atomic_size_compare_exchange_strong(&fut._handle._val->_task_status, &expected,
+                                                           (size_t)_Z_FUT_STATUS_EXECUTING, _z_memory_order_acquire,
+                                                           _z_memory_order_relaxed)) {
+                if (expected == (size_t)_Z_FUT_STATUS_CANCELLED) {
+                    // The task is cancelled, we can skip it.
+                    _z_atomic_thread_fence(_z_memory_order_acquire);
+                    _z_fut_destroy(&fut);
+                    break;
+                }
+            }
+            if (expected == (size_t)_Z_FUT_STATUS_CANCELLED) {
+                continue;  // Skip to the next task.
             }
         }
+        if (fut._fut_fn == NULL) {  // idle task, just skip it and check the next task.
+            _z_fut_destroy(&fut);
+            continue;
+        }
+        break;
     }
-    _z_timer_executor_task_status_t status =
-        task._task_fn(task._task_arg, _Z_RC_IS_NULL(&task._handle) ? NULL : task._handle._val->result, executor);
-    if (!status._finished) {
+    _z_fut_fn_result_t fn_result = fut._fut_fn(fut._fut_arg, executor);
+
+    if (!fn_result._ready) {
         // Re-enqueue the task
-        task._wake_up_time_ms = zp_clock_elapsed_ms_since(&status._wake_up_time, &executor->_epoch);
-        if (!_Z_RC_IS_NULL(&task._handle)) {
-            _z_atomic_size_store(&task._handle._val->_task_status, (size_t)_Z_EXECUTOR_TASK_STATUS_PENDING,
+        if (!_Z_RC_IS_NULL(&fut._handle)) {
+            _z_atomic_size_store(&fut._handle._val->_task_status, (size_t)_Z_FUT_STATUS_PENDING,
                                  _z_memory_order_release);
         }
-        _z_timer_executor_task_pqueue_push(&executor->_tasks, &task);
-        return _z_timer_executor_next_task_status_inner(executor);
+        if (fn_result._has_wake_up_time) {
+            _z_timed_fut_t timed_fut;
+            _z_fut_move(&timed_fut._fut, &fut);
+            timed_fut._wake_up_time_ms = zp_clock_elapsed_ms_since(&fn_result._wake_up_time, &executor->_epoch);
+            if (!_z_timed_fut_pqueue_push(&executor->_timed_tasks, &timed_fut)) {
+                // Failed to re-enqueue the task, we should destroy it to avoid memory leak.
+                if (!_Z_RC_IS_NULL(&timed_fut._fut._handle)) {
+                    _z_atomic_size_store(&timed_fut._fut._handle._val->_task_status, (size_t)_Z_FUT_STATUS_CANCELLED,
+                                         _z_memory_order_release);
+                }
+                _z_timed_fut_destroy(&timed_fut);
+                result.status = _Z_EXECUTOR_SPIN_RESULT_FAILED;
+            }
+        } else {
+            if (!_z_fut_deque_push_back(&executor->_tasks, &fut)) {
+                // Failed to re-enqueue the task, we should destroy it to avoid memory leak.
+                if (!_Z_RC_IS_NULL(&fut._handle)) {
+                    _z_atomic_size_store(&fut._handle._val->_task_status, (size_t)_Z_FUT_STATUS_CANCELLED,
+                                         _z_memory_order_release);
+                }
+                _z_fut_destroy(&fut);
+                result.status = _Z_EXECUTOR_SPIN_RESULT_FAILED;
+            }
+        }
     } else {
-        if (!_Z_RC_IS_NULL(&task._handle)) {
-            _z_atomic_size_store(&task._handle._val->_task_status, (size_t)_Z_EXECUTOR_TASK_STATUS_READY,
-                                 _z_memory_order_release);
+        if (!_Z_RC_IS_NULL(&fut._handle)) {
+            _z_atomic_size_store(&fut._handle._val->_task_status, (size_t)_Z_FUT_STATUS_READY, _z_memory_order_release);
         }
-        _z_timer_executor_task_destroy(&task);
-        return _z_timer_executor_next_task_status_inner(executor);
+        _z_fut_destroy(&fut);
     }
+    return result;
 }

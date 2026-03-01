@@ -26,31 +26,31 @@
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+// Shared state between the test thread and the background executor thread.
+// All fields are protected by mutex + condvar except where noted.
 typedef struct {
     _z_mutex_t mutex;
     _z_condvar_t condvar;
-    int call_count;
-    bool destroyed;
-    bool finished;
-    size_t reschedule_delay_ms;  // for task that reschedules once
-} shared_arg_t;
+    int call_count;         // number of times fn body was entered
+    bool destroyed;         // destroy_fn was called
+    unsigned long wait_ms;  // wait for timed part of fn_reschedule_once
+} test_arg_t;
 
-static void shared_arg_init(shared_arg_t *a) {
+static void test_arg_init(test_arg_t *a) {
     _z_mutex_init(&a->mutex);
     _z_condvar_init(&a->condvar);
     a->call_count = 0;
     a->destroyed = false;
-    a->finished = false;
-    a->reschedule_delay_ms = 0;
+    a->wait_ms = 0;
 }
 
-static void shared_arg_clear(shared_arg_t *a) {
+static void test_arg_clear(test_arg_t *a) {
     _z_condvar_drop(&a->condvar);
     _z_mutex_drop(&a->mutex);
 }
 
-// Wait until call_count reaches expected, with a generous timeout
-static void shared_arg_wait_call_count(shared_arg_t *a, int expected) {
+// Block until call_count >= expected.
+static void test_arg_wait_calls(test_arg_t *a, int expected) {
     _z_mutex_lock(&a->mutex);
     while (a->call_count < expected) {
         _z_condvar_wait(&a->condvar, &a->mutex);
@@ -58,7 +58,22 @@ static void shared_arg_wait_call_count(shared_arg_t *a, int expected) {
     _z_mutex_unlock(&a->mutex);
 }
 
-static void shared_arg_wait_destroyed(shared_arg_t *a) {
+static int test_arg_get_calls(test_arg_t *a) {
+    _z_mutex_lock(&a->mutex);
+    int calls = a->call_count;
+    _z_mutex_unlock(&a->mutex);
+    return calls;
+}
+
+static int test_arg_get_destroyed(test_arg_t *a) {
+    _z_mutex_lock(&a->mutex);
+    bool destroyed = a->destroyed;
+    _z_mutex_unlock(&a->mutex);
+    return destroyed;
+}
+
+// Block until destroyed == true.
+static void test_arg_wait_destroyed(test_arg_t *a) {
     _z_mutex_lock(&a->mutex);
     while (!a->destroyed) {
         _z_condvar_wait(&a->condvar, &a->mutex);
@@ -66,48 +81,41 @@ static void shared_arg_wait_destroyed(shared_arg_t *a) {
     _z_mutex_unlock(&a->mutex);
 }
 
-// Task that finishes immediately
-static _z_timer_executor_task_status_t task_fn_finish(void *arg, void *result, _z_timer_executor_t *ex) {
-    (void)result;
+// ── fut_fn helpers ────────────────────────────────────────────────────────────
+
+// Increments call_count and finishes immediately.
+static _z_fut_fn_result_t fn_finish(void *arg, _z_executor_t *ex) {
     (void)ex;
-    shared_arg_t *a = (shared_arg_t *)arg;
+    test_arg_t *a = (test_arg_t *)arg;
     _z_mutex_lock(&a->mutex);
     a->call_count++;
-    a->finished = true;
     _z_condvar_signal_all(&a->condvar);
     _z_mutex_unlock(&a->mutex);
-    return (_z_timer_executor_task_status_t){._finished = true, ._wake_up_time = z_clock_now()};
+    return (_z_fut_fn_result_t){._ready = true};
 }
 
-// Task that reschedules once then finishes
-static _z_timer_executor_task_status_t task_fn_reschedule_once(void *arg, void *result, _z_timer_executor_t *ex) {
-    (void)result;
+// Reschedules with immediate wake_up_time on first call, finishes on second.
+static _z_fut_fn_result_t fn_reschedule_once(void *arg, _z_executor_t *ex) {
     (void)ex;
-    shared_arg_t *a = (shared_arg_t *)arg;
+    test_arg_t *a = (test_arg_t *)arg;
     _z_mutex_lock(&a->mutex);
-    a->call_count++;
-    bool should_finish = (a->call_count >= 2);
+    int count = ++a->call_count;
     _z_condvar_signal_all(&a->condvar);
     _z_mutex_unlock(&a->mutex);
     z_clock_t wake = z_clock_now();
-    z_clock_advance_ms(&wake, (unsigned long)a->reschedule_delay_ms);
-    return (_z_timer_executor_task_status_t){._finished = should_finish, ._wake_up_time = wake};
-}
-
-// Task that writes true to result
-static _z_timer_executor_task_status_t task_fn_write_result(void *arg, void *result, _z_timer_executor_t *ex) {
-    (void)ex;
-    shared_arg_t *a = (shared_arg_t *)arg;
-    *(bool *)result = true;
-    _z_mutex_lock(&a->mutex);
-    a->call_count++;
-    _z_condvar_signal_all(&a->condvar);
-    _z_mutex_unlock(&a->mutex);
-    return (_z_timer_executor_task_status_t){._finished = true, ._wake_up_time = z_clock_now()};
+    z_clock_advance_ms(&wake, a->wait_ms);
+    if (count == 1) {
+        return (_z_fut_fn_result_t){
+            ._ready = false,
+            ._has_wake_up_time = true,
+            ._wake_up_time = wake,
+        };
+    }
+    return (_z_fut_fn_result_t){._ready = true};
 }
 
 static void destroy_fn(void *arg) {
-    shared_arg_t *a = (shared_arg_t *)arg;
+    test_arg_t *a = (test_arg_t *)arg;
     _z_mutex_lock(&a->mutex);
     a->destroyed = true;
     _z_condvar_signal_all(&a->condvar);
@@ -116,211 +124,272 @@ static void destroy_fn(void *arg) {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-// Create and immediately destroy — no tasks spawned.
-static void test_background_executor_new_destroy(void) {
+// _z_background_executor_new + _z_background_executor_destroy with no tasks.
+static void test_new_destroy_no_tasks(void) {
     printf("Test: new and destroy with no tasks\n");
     _z_background_executor_t be;
     assert(_z_background_executor_new(&be) == _Z_RES_OK);
     assert(_z_background_executor_destroy(&be) == _Z_RES_OK);
 }
 
-// spawn_and_forget: task body runs and destroy_fn is called.
-static void test_background_executor_spawn_and_forget(size_t idle_time_ms) {
-    printf("Test: spawn_and_forget runs task and calls destroy_fn, idle_time_ms=%zu\n", idle_time_ms);
+// A spawned future runs on the background thread; destroy_fn is called.
+static void test_spawn_runs_task(void) {
+    printf("Test: spawn runs task on background thread and calls destroy_fn\n");
     _z_background_executor_t be;
     assert(_z_background_executor_new(&be) == _Z_RES_OK);
 
-    shared_arg_t arg;
-    shared_arg_init(&arg);
+    test_arg_t arg;
+    test_arg_init(&arg);
 
-    if (idle_time_ms > 0) {
-        z_sleep_ms(idle_time_ms);
-    }
-    assert(_z_background_executor_spawn_and_forget(&be, &arg, task_fn_finish, destroy_fn) == _Z_RES_OK);
+    _z_fut_t fut;
+    _z_fut_new(&fut, &arg, fn_finish, destroy_fn);
+    assert(_z_background_executor_spawn(&be, &fut) == _Z_RES_OK);
 
-    shared_arg_wait_call_count(&arg, 1);
+    test_arg_wait_calls(&arg, 1);
     assert(arg.call_count == 1);
 
-    shared_arg_wait_destroyed(&arg);
+    test_arg_wait_destroyed(&arg);
     assert(arg.destroyed == true);
 
     assert(_z_background_executor_destroy(&be) == _Z_RES_OK);
-    shared_arg_clear(&arg);
+    test_arg_clear(&arg);
 }
 
-// spawn: result pointer is written when task finishes.
-static void test_background_executor_spawn_result_written(void) {
-    printf("Test: spawn writes result when task finishes\n");
+// A future with a handle: cancel before it runs — body never called, destroy_fn called.
+static void test_cancel_before_execution(void) {
+    printf("Test: cancel before execution prevents body; destroy_fn still called\n");
     _z_background_executor_t be;
     assert(_z_background_executor_new(&be) == _Z_RES_OK);
 
-    shared_arg_t arg;
-    shared_arg_init(&arg);
-    bool result = false;
+    test_arg_t arg;
+    test_arg_init(&arg);
 
-    _z_background_executor_spawn_result_t sr =
-        _z_background_executor_spawn(&be, &arg, task_fn_write_result, destroy_fn, &result);
-    assert(sr.result == _Z_RES_OK);
-    assert(!_Z_RC_IS_NULL(&sr.handle));
-
-    shared_arg_wait_call_count(&arg, 1);
-    assert(result == true);
-
-    shared_arg_wait_destroyed(&arg);
-
-    _z_executor_task_handle_rc_drop(&sr.handle);
-    assert(_z_background_executor_destroy(&be) == _Z_RES_OK);
-    shared_arg_clear(&arg);
-}
-
-// A rescheduled task is re-queued until it finishes.
-static void test_background_executor_task_reschedules(size_t reschedule_delay_ms) {
-    printf("Test: rescheduled task runs until finished, reschedule_delay_ms=%zu\n", reschedule_delay_ms);
-    _z_background_executor_t be;
-    assert(_z_background_executor_new(&be) == _Z_RES_OK);
-
-    shared_arg_t arg;
-    shared_arg_init(&arg);
-    arg.reschedule_delay_ms = reschedule_delay_ms;
-
-    assert(_z_background_executor_spawn_and_forget(&be, &arg, task_fn_reschedule_once, destroy_fn) == _Z_RES_OK);
-
-    // Must be called exactly twice: once rescheduled, once finished
-    shared_arg_wait_call_count(&arg, 2);
-    assert(arg.call_count == 2);
-
-    shared_arg_wait_destroyed(&arg);
-    assert(arg.destroyed == true);
-
-    assert(_z_background_executor_destroy(&be) == _Z_RES_OK);
-    shared_arg_clear(&arg);
-}
-
-// Cancel via handle: task body does not run but destroy_fn is called.
-static void test_background_executor_cancel_prevents_execution(void) {
-    printf("Test: cancelled task does not execute; destroy_fn still called\n");
-    _z_background_executor_t be;
-    assert(_z_background_executor_new(&be) == _Z_RES_OK);
-
-    shared_arg_t arg;
-    shared_arg_init(&arg);
-    bool result = false;
-
-    // Suspend the executor so we can cancel before the task runs
+    // Suspend so the task cannot be picked up before we cancel it
     assert(_z_background_executor_suspend(&be) == _Z_RES_OK);
 
-    _z_background_executor_spawn_result_t sr =
-        _z_background_executor_spawn(&be, &arg, task_fn_finish, destroy_fn, &result);
-    assert(sr.result == _Z_RES_OK);
+    _z_fut_t fut;
+    _z_fut_new(&fut, &arg, fn_finish, destroy_fn);
+    _z_fut_handle_rc_t h = _z_fut_get_handle(&fut);
+    assert(!_Z_RC_IS_NULL(&h));
+    assert(_z_background_executor_spawn(&be, &fut) == _Z_RES_OK);
 
     // Cancel while executor is suspended
-    _z_executor_task_handle_cancel(&sr.handle);
+    _z_fut_handle_cancel(_Z_RC_IN_VAL(&h));
+    assert(_z_fut_handle_status(_Z_RC_IN_VAL(&h)) == _Z_FUT_STATUS_CANCELLED);
 
     assert(_z_background_executor_resume(&be) == _Z_RES_OK);
 
-    // destroy_fn must still be called even though task was cancelled
-    shared_arg_wait_destroyed(&arg);
+    // destroy_fn must be called even though the task was cancelled
+    test_arg_wait_destroyed(&arg);
     assert(arg.destroyed == true);
     assert(arg.call_count == 0);  // body never ran
-    assert(result == false);      // result not written
 
-    _z_executor_task_handle_rc_drop(&sr.handle);
+    _z_fut_handle_rc_drop(&h);
     assert(_z_background_executor_destroy(&be) == _Z_RES_OK);
-    shared_arg_clear(&arg);
+    test_arg_clear(&arg);
+}
+
+// A future with an immediate timed reschedule runs exactly twice.
+static void test_timed_reschedule_runs_twice(void) {
+    printf("Test: timed reschedule runs task body exactly twice\n");
+    _z_background_executor_t be;
+    assert(_z_background_executor_new(&be) == _Z_RES_OK);
+
+    test_arg_t arg;
+    test_arg_init(&arg);
+    arg.wait_ms = 500;
+
+    _z_fut_t fut;
+    _z_fut_new(&fut, &arg, fn_reschedule_once, destroy_fn);
+    assert(_z_background_executor_spawn(&be, &fut) == _Z_RES_OK);
+
+    z_sleep_ms(100);                        // give the background thread a chance to run the first call and reschedule
+    assert(test_arg_get_calls(&arg) == 1);  // first call must have happened, but not the second yet
+    assert(test_arg_get_destroyed(&arg) == false);  // destroy_fn must not have been called yet
+    z_sleep_ms(500);                                // wait for the rescheduled call to become ready and run
+    assert(test_arg_get_calls(&arg) == 2);
+    assert(test_arg_get_destroyed(&arg) == true);
+
+    assert(_z_background_executor_destroy(&be) == _Z_RES_OK);
+    test_arg_clear(&arg);
+}
+
+// Tasks do not run while the executor is suspended; they run after resume.
+static void test_suspend_blocks_execution(void) {
+    printf("Test: tasks do not run while suspended; run after resume\n");
+    _z_background_executor_t be;
+    assert(_z_background_executor_new(&be) == _Z_RES_OK);
+
+    test_arg_t arg;
+    test_arg_init(&arg);
+
+    assert(_z_background_executor_suspend(&be) == _Z_RES_OK);
+
+    _z_fut_t fut;
+    _z_fut_new(&fut, &arg, fn_finish, destroy_fn);
+    assert(_z_background_executor_spawn(&be, &fut) == _Z_RES_OK);
+
+    // Give the background thread ample opportunity to (incorrectly) run the task
+    z_sleep_ms(100);
+    _z_mutex_lock(&arg.mutex);
+    int calls_while_suspended = arg.call_count;
+    _z_mutex_unlock(&arg.mutex);
+    assert(calls_while_suspended == 0);  // must not have run yet
+
+    assert(_z_background_executor_resume(&be) == _Z_RES_OK);
+
+    test_arg_wait_calls(&arg, 1);
+    assert(arg.call_count == 1);
+
+    test_arg_wait_destroyed(&arg);
+    assert(_z_background_executor_destroy(&be) == _Z_RES_OK);
+    test_arg_clear(&arg);
+}
+
+// Nested suspend/resume: execution resumes only after all suspenders have resumed.
+static void test_nested_suspend_resume(void) {
+    printf("Test: nested suspend/resume — task runs only after all resumes\n");
+    _z_background_executor_t be;
+    assert(_z_background_executor_new(&be) == _Z_RES_OK);
+
+    test_arg_t arg;
+    test_arg_init(&arg);
+
+    // Two independent suspenders
+    assert(_z_background_executor_suspend(&be) == _Z_RES_OK);
+    assert(_z_background_executor_suspend(&be) == _Z_RES_OK);
+
+    _z_fut_t fut;
+    _z_fut_new(&fut, &arg, fn_finish, destroy_fn);
+    assert(_z_background_executor_spawn(&be, &fut) == _Z_RES_OK);
+
+    z_sleep_ms(100);
+    _z_mutex_lock(&arg.mutex);
+    assert(arg.call_count == 0);
+    _z_mutex_unlock(&arg.mutex);
+
+    // First resume — still one suspender outstanding
+    assert(_z_background_executor_resume(&be) == _Z_RES_OK);
+    z_sleep_ms(100);
+    _z_mutex_lock(&arg.mutex);
+    assert(arg.call_count == 0);
+    _z_mutex_unlock(&arg.mutex);
+
+    // Second resume — now fully unblocked
+    assert(_z_background_executor_resume(&be) == _Z_RES_OK);
+    test_arg_wait_calls(&arg, 1);
+    assert(arg.call_count == 1);
+
+    test_arg_wait_destroyed(&arg);
+    assert(_z_background_executor_destroy(&be) == _Z_RES_OK);
+    test_arg_clear(&arg);
 }
 
 // Multiple concurrent tasks all complete.
-static void test_background_executor_multiple_tasks(void) {
-    printf("Test: multiple tasks all complete\n");
+static void test_multiple_tasks_all_complete(void) {
+    printf("Test: multiple concurrent tasks all complete\n");
     _z_background_executor_t be;
     assert(_z_background_executor_new(&be) == _Z_RES_OK);
 
     const int N = 8;
-    shared_arg_t args[8];
+    test_arg_t args[8];
+    z_clock_t start = z_clock_now();
     for (int i = 0; i < N; i++) {
-        shared_arg_init(&args[i]);
-        assert(_z_background_executor_spawn_and_forget(&be, &args[i], task_fn_finish, destroy_fn) == _Z_RES_OK);
+        test_arg_init(&args[i]);
+        args[i].wait_ms = (unsigned long)(300 * (i + 1));  // stagger the wait times so tasks finish in order
+        _z_fut_t fut;
+        _z_fut_new(&fut, &args[i], fn_reschedule_once, destroy_fn);
+        assert(_z_background_executor_spawn(&be, &fut) == _Z_RES_OK);
     }
 
     for (int i = 0; i < N; i++) {
-        shared_arg_wait_call_count(&args[i], 1);
-        shared_arg_wait_destroyed(&args[i]);
-        assert(args[i].call_count == 1);
+        test_arg_wait_calls(&args[i], 2);
+        test_arg_wait_destroyed(&args[i]);
+        z_clock_t now = z_clock_now();
+        unsigned long elapsed_ms = zp_clock_elapsed_ms_since(&now, &start);
+        assert(args[i].call_count == 2);
         assert(args[i].destroyed == true);
+        assert(elapsed_ms >=
+               args[i].wait_ms);  // each task must have taken at least as long as its wait time, indicating it
+        assert(elapsed_ms <= args[i].wait_ms + 300);  // but not too much longer
     }
 
     assert(_z_background_executor_destroy(&be) == _Z_RES_OK);
     for (int i = 0; i < N; i++) {
-        shared_arg_clear(&args[i]);
+        test_arg_clear(&args[i]);
     }
 }
 
-// destroy while tasks are pending: destroy_fn must be called for each.
-static void test_background_executor_destroy_calls_pending_destroy_fns(void) {
-    printf("Test: destroy calls destroy_fn on pending tasks\n");
+// destroy while tasks are pending: destroy_fn is called for each.
+static void test_destroy_with_pending_tasks(void) {
+    printf("Test: destroy calls destroy_fn on all pending tasks\n");
     _z_background_executor_t be;
     assert(_z_background_executor_new(&be) == _Z_RES_OK);
 
     const int N = 4;
-    shared_arg_t args[4];
+    test_arg_t args[4];
 
-    // Suspend so tasks queue up without running
+    // Queue tasks while suspended so none run before destroy
     assert(_z_background_executor_suspend(&be) == _Z_RES_OK);
     for (int i = 0; i < N; i++) {
-        shared_arg_init(&args[i]);
-        assert(_z_background_executor_spawn_and_forget(&be, &args[i], task_fn_finish, destroy_fn) == _Z_RES_OK);
+        test_arg_init(&args[i]);
+        _z_fut_t fut;
+        _z_fut_new(&fut, &args[i], fn_finish, destroy_fn);
+        assert(_z_background_executor_spawn(&be, &fut) == _Z_RES_OK);
     }
+    // Resume so the background thread can process cancellations on destroy
     assert(_z_background_executor_resume(&be) == _Z_RES_OK);
 
-    // Destroy immediately — some tasks may not have run yet
+    // Destroy immediately — some or all tasks may not have run yet
     assert(_z_background_executor_destroy(&be) == _Z_RES_OK);
 
-    // All destroy_fns must have been called by now
+    // Every destroy_fn must have been called by now (destroy is synchronous)
     for (int i = 0; i < N; i++) {
         assert(args[i].destroyed == true);
-        shared_arg_clear(&args[i]);
+        test_arg_clear(&args[i]);
     }
 }
 
-// suspend/resume: tasks do not run while suspended.
-static void test_background_executor_suspend_resume(void) {
-    printf("Test: tasks do not run while executor is suspended\n");
+// Handle status is PENDING before execution, READY after.
+static void test_handle_status_transitions(void) {
+    printf("Test: handle status transitions PENDING -> READY\n");
     _z_background_executor_t be;
     assert(_z_background_executor_new(&be) == _Z_RES_OK);
 
-    shared_arg_t arg;
-    shared_arg_init(&arg);
+    test_arg_t arg;
+    test_arg_init(&arg);
 
     assert(_z_background_executor_suspend(&be) == _Z_RES_OK);
-    assert(_z_background_executor_spawn_and_forget(&be, &arg, task_fn_finish, destroy_fn) == _Z_RES_OK);
 
-    // Give the background thread a chance to (incorrectly) run the task
-    z_sleep_ms(500);
-    assert(arg.call_count == 0);  // must not have run yet
+    _z_fut_t fut;
+    _z_fut_new(&fut, &arg, fn_finish, destroy_fn);
+    _z_fut_handle_rc_t h = _z_fut_get_handle(&fut);
+    assert(_z_background_executor_spawn(&be, &fut) == _Z_RES_OK);
+
+    assert(_z_fut_handle_status(_Z_RC_IN_VAL(&h)) == _Z_FUT_STATUS_PENDING);
 
     assert(_z_background_executor_resume(&be) == _Z_RES_OK);
 
-    shared_arg_wait_call_count(&arg, 1);
-    assert(arg.call_count == 1);  // now it ran
+    test_arg_wait_calls(&arg, 1);
+    assert(_z_fut_handle_status(_Z_RC_IN_VAL(&h)) == _Z_FUT_STATUS_READY);
 
-    shared_arg_wait_destroyed(&arg);
+    _z_fut_handle_rc_drop(&h);
     assert(_z_background_executor_destroy(&be) == _Z_RES_OK);
-    shared_arg_clear(&arg);
+    test_arg_clear(&arg);
 }
 
 // ─── main ────────────────────────────────────────────────────────────────────
 
 int main(void) {
-    test_background_executor_new_destroy();
-    test_background_executor_spawn_and_forget(0);
-    test_background_executor_spawn_and_forget(500);
-    test_background_executor_spawn_result_written();
-    test_background_executor_task_reschedules(0);
-    test_background_executor_task_reschedules(500);
-    test_background_executor_cancel_prevents_execution();
-    test_background_executor_multiple_tasks();
-    test_background_executor_destroy_calls_pending_destroy_fns();
-    test_background_executor_suspend_resume();
+    test_new_destroy_no_tasks();
+    test_spawn_runs_task();
+    test_cancel_before_execution();
+    test_timed_reschedule_runs_twice();
+    test_suspend_blocks_execution();
+    test_nested_suspend_resume();
+    test_multiple_tasks_all_complete();
+    test_destroy_with_pending_tasks();
+    test_handle_status_transitions();
     printf("All background executor tests passed.\n");
     return 0;
 }
