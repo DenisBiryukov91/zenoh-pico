@@ -203,26 +203,26 @@ static void test_timer_executor_destroy_calls_pending_destroy_fns(void) {
 static void test_timer_executor_multiple_tasks_order(void) {
     printf("Test: multiple tasks all execute\n");
     _z_timer_executor_t ex = _z_timer_executor_new();
-    const int N = 6;
+    const unsigned long N = 6;
     timer_test_arg_t args[6];
-    for (int i = 0; i < N; i++) {
+    for (unsigned long i = 0; i < N; i++) {
         args[i].call_count = 0;
         args[i].destroyed = false;
         args[i].reschedule_delay_ms = i * 500;  // variable wake_up_time to test ordering
         bool ok = _z_timer_executor_spawn_and_forget(&ex, &args[i], task_fn_reschedule_once, destroy_fn);
         assert(ok == true);
     }
-    for (int i = 0; i < N; i++) {
+    for (unsigned long i = 0; i < N; i++) {
         // run first step of tasks which fires without delay
-        _z_timer_executor_spin_result_t res = _z_timer_executor_spin(&ex);
+        _z_timer_executor_spin(&ex);
     }
-    for (int i = 0; i < N; i++) {
+    for (unsigned long i = 0; i < N; i++) {
         z_sleep_ms(300);
         // run second step of half the tasks which fire with delay ≤ 300ms, while the other half are still pending
-        _z_timer_executor_spin_result_t res = _z_timer_executor_spin(&ex);
+        _z_timer_executor_spin(&ex);
     }
 
-    for (int i = 0; i < N; i++) {
+    for (unsigned long i = 0; i < N; i++) {
         if (i <= N / 2) {
             assert(args[i].call_count == 2);
             assert(args[i].destroyed == true);
@@ -243,7 +243,7 @@ static void test_timer_executor_multiple_tasks_order(void) {
     assert(spins > 0);  // at least one spin needed to finish remaining tasks
     assert(spins < 10);
 
-    for (int i = 0; i < N; i++) {
+    for (unsigned long i = 0; i < N; i++) {
         assert(args[i].call_count == 2);
         assert(args[i].destroyed == true);
     }

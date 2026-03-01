@@ -198,5 +198,7 @@ z_result_t _z_background_executor_destroy(_z_background_executor_t *be) {
     _z_background_executor_inner_rc_drop(&be->_inner);
     return _Z_RES_OK;
 }
-
+#else
+// to prevent "empty compilation unit" warning when multi-threading is disabled
+typedef int _z_background_executor_inner_t;
 #endif

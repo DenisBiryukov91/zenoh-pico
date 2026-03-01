@@ -90,7 +90,7 @@ static _z_timer_executor_task_status_t task_fn_reschedule_once(void *arg, void *
     _z_condvar_signal_all(&a->condvar);
     _z_mutex_unlock(&a->mutex);
     z_clock_t wake = z_clock_now();
-    z_clock_advance_ms(&wake, a->reschedule_delay_ms);
+    z_clock_advance_ms(&wake, (unsigned long)a->reschedule_delay_ms);
     return (_z_timer_executor_task_status_t){._finished = should_finish, ._wake_up_time = wake};
 }
 

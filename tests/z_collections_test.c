@@ -774,7 +774,10 @@ typedef struct {
     int id;
 } _z_elt_t;
 
-void _z_elt_destroy(_z_elt_t *elt) { destroyed_elts++; }
+void _z_elt_destroy(_z_elt_t *elt) {
+    (void)elt;
+    destroyed_elts++;
+}
 
 void _z_elt_move(_z_elt_t *dst, _z_elt_t *src) {
     dst->id = src->id;

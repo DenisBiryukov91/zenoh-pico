@@ -148,8 +148,6 @@ z_result_t z_sleep_s(size_t time) {
 }
 
 unsigned long z_time_elapsed_ms_since(z_time_t *time, z_time_t *epoch) {
-    z_time_t now = emscripten_get_now();
-
     unsigned long elapsed = *time > *epoch ? *time - *epoch : 0;
     return elapsed;
 }
