@@ -24,6 +24,23 @@
 #include "zenoh-pico/utils/pointers.h"
 #include "zenoh-pico/utils/result.h"
 
+size_t fnv1_hash(const uint8_t *data, size_t len) {
+#if (SIZE_MAX >= UINT64_MAX)
+    size_t hash = 14695981039346656037u;
+    for (size_t i = 0; i < len; i++) {
+        hash ^= data[i];
+        hash *= 1099511628211u;
+    }
+#else
+    size_t hash = 2166136261u;
+    for (size_t i = 0; i < len; i++) {
+        hash ^= data[i];
+        hash *= 16777619u;
+    }
+#endif
+    return hash;
+}
+
 void _z_default_deleter(void *data, void *context) {
     _ZP_UNUSED(context);
     z_free(data);

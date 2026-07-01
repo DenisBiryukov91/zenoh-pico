@@ -63,6 +63,8 @@ typedef struct {
     _z_delete_context_t _delete_context;
 } _z_slice_t;
 
+size_t fnv1_hash(const uint8_t *data, size_t len);
+
 static inline _z_slice_t _z_slice_null(void) { return (_z_slice_t){0}; }
 static inline void _z_slice_reset(_z_slice_t *bs) { *bs = _z_slice_null(); }
 static inline bool _z_slice_is_empty(const _z_slice_t *bs) { return bs->len == 0; }
